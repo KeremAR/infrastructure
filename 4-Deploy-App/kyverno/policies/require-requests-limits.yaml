@@ -12,7 +12,7 @@ spec:
     - Audit
   evaluation:
     background:
-      enabled: true
+      enabled: false
   matchConstraints:
     resourceRules:
       - apiGroups:

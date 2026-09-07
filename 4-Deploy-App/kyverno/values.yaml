@@ -8,3 +8,31 @@ reportsServer:
 crds:
   reportsServer:
     enabled: false
+
+# Start with admission evaluation only. Background scans and persisted policy
+# reports can create substantial API server and etcd traffic on this cluster.
+features:
+  admissionReports:
+    enabled: false
+  aggregateReports:
+    enabled: false
+  policyReports:
+    enabled: false
+  validatingAdmissionPolicyReports:
+    enabled: false
+  backgroundScan:
+    enabled: false
+
+# Use one replica per controller for this homelab cluster. Increase these
+# deliberately later if admission availability requires it.
+admissionController:
+  replicas: 1
+
+backgroundController:
+  replicas: 1
+
+cleanupController:
+  replicas: 1
+
+reportsController:
+  enabled: false

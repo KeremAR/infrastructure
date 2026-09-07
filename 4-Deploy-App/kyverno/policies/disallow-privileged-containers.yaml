@@ -12,7 +12,7 @@ spec:
     - Audit
   evaluation:
     background:
-      enabled: true
+      enabled: false
   matchConstraints:
     resourceRules:
       - apiGroups:
@@ -24,6 +24,9 @@ spec:
           - UPDATE
         resources:
           - pods
+  matchConditions:
+    - name: application-namespaces
+      expression: object.metadata.namespace in ['staging', 'production']
   validations:
     - message: Privileged containers are not allowed.
       expression: >-
