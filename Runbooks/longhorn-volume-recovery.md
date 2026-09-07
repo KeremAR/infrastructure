@@ -389,10 +389,15 @@ filesystem, but it does not immediately reduce the Longhorn volume's `Actual
 Size`. Longhorn is a block storage system and needs an UNMAP/TRIM request to
 learn which blocks are no longer used.
 
-Do not use `sudo fstrim -av` as the normal Longhorn maintenance mechanism. That
-command trims every eligible filesystem visible in the node mount namespace.
-For a Longhorn volume, target the specific mounted PVC through Longhorn's
-`Trim Filesystem` operation or its `filesystem-trim` recurring job.
+At the Linux storage layer, `sudo fstrim -av` and Longhorn filesystem trim use
+the same operation: `fstrim` tells the filesystem to issue discard/UNMAP for
+free extents. They are not different compaction algorithms. Their scope and
+orchestration are different. `fstrim -av` trims every eligible filesystem
+visible in the node mount namespace, including host filesystems. Longhorn finds
+the mount point for the selected attached volume and runs trim for that volume,
+with recurring-job scheduling and status managed by Longhorn. Use the Longhorn
+operation for normal PVC maintenance and reserve node-wide `fstrim -av` for
+intentional host maintenance.
 
 This repository defines a conservative recurring job:
 
@@ -400,7 +405,7 @@ This repository defines a conservative recurring job:
 manifest: 3-Longhorn/longhorn-filesystem-trim.yaml
 schedule: every day at 03:30
 concurrency: 1
-scope: only explicitly labeled PVCs
+scope: the existing Prometheus PVC and future longhorn-storageclass volumes
 ```
 
 Install the recurring job:
@@ -409,7 +414,8 @@ Install the recurring job:
 kubectl apply -f 3-Longhorn/longhorn-filesystem-trim.yaml
 ```
 
-The Prometheus PVC opts in through these labels:
+The Prometheus PVC was created before the StorageClass selector existed, so it
+opts in explicitly through these labels:
 
 ```yaml
 metadata:
@@ -420,8 +426,25 @@ metadata:
 
 The source label tells Longhorn to synchronize recurring-job labels from the
 PVC to its Longhorn Volume. The second label assigns the named recurring job.
-Only attached and mounted volumes can be trimmed. Verify the assignment and
-job history with:
+
+The `longhorn-storageclass` manifest also contains this parameter:
+
+```yaml
+parameters:
+  recurringJobSelector: >-
+    [{"name":"filesystem-trim-daily","isGroup":false}]
+```
+
+Longhorn applies the selector while provisioning a volume. It therefore assigns
+the trim job automatically to future volumes created from this StorageClass,
+but does not modify volumes that already exist. Add the PVC labels above when
+an existing volume must opt in. StorageClass parameters are immutable, so
+changing this selector on a live cluster requires deleting and immediately
+recreating only the StorageClass object; that operation does not delete its
+existing PVs or PVCs.
+
+Only attached and mounted volumes can be trimmed. Verify the assignment and job
+history with:
 
 ```bash
 kubectl get recurringjob.longhorn.io -n longhorn-system filesystem-trim-daily
@@ -445,6 +468,21 @@ socket and host filesystem. A host cron or systemd timer avoids that pod access
 but creates configuration drift and can remove stopped-container evidence while
 an incident is being investigated. Kubelet and containerd should normally
 garbage-collect exited containers and unused images themselves.
+
+Kubelet checks unused containers every minute and unused images every five
+minutes. A check does not mean that every exited container is deleted. Container
+GC applies a minimum age, a per-Pod/container retention limit, and an optional
+global dead-container limit. The default command-line values retain up to one
+old instance per container and do not impose a global total limit. Containers
+from deleted Pods become eligible after the minimum age, and kubelet only
+garbage-collects containers that it manages. It is therefore normal to see
+dozens of exited entries after many workloads restart, even while GC is working.
+
+The current cluster does not pass custom container-GC flags to kubelet. Its
+separate image-GC policy starts when image filesystem usage reaches 85 percent
+and removes unused images until usage falls to 80 percent; unused images must be
+at least two minutes old. These image thresholds do not force all exited
+container records to be removed.
 
 If stale runtime objects repeatedly accumulate, investigate kubelet image and
 container garbage-collection settings and containerd health first. Keep the

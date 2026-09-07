@@ -10,3 +10,5 @@ parameters:
   numberOfReplicas: "1"
   staleReplicaTimeout: "2880"
   fsType: ext4
+  recurringJobSelector: >-
+    [{"name":"filesystem-trim-daily","isGroup":false}]
